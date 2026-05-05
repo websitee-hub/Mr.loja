@@ -1,0 +1,160 @@
+<!DOCTYPE html><html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MR Loja</title>
+<style>
+body{font-family:Arial;margin:0;background:#f4f4f4}
+header{background:linear-gradient(90deg,#ff7a00,#ffb347);color:#fff;padding:20px;display:flex;justify-content:space-between;align-items:center}
+.logo{font-size:32px;font-weight:bold}
+.login{cursor:pointer;font-size:24px}
+.container{max-width:1000px;margin:auto;padding:20px}
+.produtos{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:15px}
+.card{background:#fff;border-radius:12px;padding:15px;text-align:center;box-shadow:0 4px 10px rgba(0,0,0,0.1)}
+.card img{width:100%;height:150px;object-fit:cover;border-radius:8px}
+.preco{color:#ff7a00;font-weight:bold}
+button{background:#ff7a00;color:#fff;border:none;padding:8px;border-radius:6px;margin-top:5px;cursor:pointer}
+button:hover{background:#e56700}
+.admin-box{display:none;background:#fff;padding:10px;border-radius:10px;margin-bottom:15px}
+input{width:100%;margin:5px 0;padding:8px;border-radius:6px;border:1px solid #ccc}
+.cart{position:fixed;bottom:20px;right:20px;background:#ff7a00;color:#fff;padding:14px 16px;border-radius:50px;cursor:pointer;font-weight:bold}
+.cart-box{position:fixed;bottom:80px;right:20px;background:#fff;padding:12px;border-radius:12px;display:none;width:260px;box-shadow:0 4px 10px rgba(0,0,0,0.15)}
+.item{font-size:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.remove{background:red;padding:4px 6px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<header id="logo">
+<div class="logo">🚗 MR LOJA</div>
+<div class="login" onclick="loginGoogle()">🔐</div>
+</header><div class="container">
+<div id="adminBox" class="admin-box">
+<input id="nome" placeholder="Produto">
+<input id="preco" placeholder="Preço">
+<input id="imagem" placeholder="Imagem URL">
+<button onclick="addProduto()">Adicionar</button>
+</div>
+<div id="listaProdutos" class="produtos"></div>
+</div><div class="cart" onclick="toggleCart()">🧾 R$ <span id="total">0</span></div>
+<div id="cartBox" class="cart-box"></div><script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import{getFirestore,collection,onSnapshot,addDoc,deleteDoc,doc}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import{getAuth,signInWithPopup,GoogleAuthProvider,onAuthStateChanged}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+const firebaseConfig={apiKey:"AIzaSyAvaF-ppTlCkglojighky9LtsUoanZS_kI",authDomain:"mr-loja-4545.firebaseapp.com",projectId:"mr-loja-4545"};
+
+const app=initializeApp(firebaseConfig);
+const db=getFirestore(app);
+const auth=getAuth(app);
+const provider=new GoogleAuthProvider();
+
+const ADMINS=["lojamr.auto@gmail.com","arthurfigueiredo017@gmail.com"];
+
+let user=null;
+let isAdmin=false;
+let secret=false;
+let carrinho=[];
+let produtos=[];
+
+window.loginGoogle=async()=>{await signInWithPopup(auth,provider)}
+
+onAuthStateChanged(auth,u=>{
+user=u;
+isAdmin=!!(u && secret && ADMINS.includes(u.email.toLowerCase()));
+updateUI();
+});
+
+let clicks=0;
+document.getElementById('logo').addEventListener('click',()=>{
+clicks++;
+if(clicks===5){secret=true;loginGoogle();clicks=0}
+setTimeout(()=>clicks=0,1500);
+});
+
+function updateUI(){
+document.getElementById('adminBox').style.display=isAdmin?'block':'none';
+renderProdutos();
+}
+
+window.addProduto=async()=>{
+if(!isAdmin)return;
+const nome=document.getElementById('nome').value.trim();
+const preco=Number(document.getElementById('preco').value);
+const imagem=document.getElementById('imagem').value.trim();
+if(!nome||!preco||!imagem)return;
+await addDoc(collection(db,'produtos'),{nome,preco,imagem});
+document.getElementById('nome').value='';
+document.getElementById('preco').value='';
+document.getElementById('imagem').value='';
+}
+
+window.excluirProduto=async(id)=>{
+if(!isAdmin)return;
+await deleteDoc(doc(db,'produtos',id));
+}
+
+function renderProdutos(){
+const lista=document.getElementById('listaProdutos');
+lista.innerHTML='';
+produtos.forEach(p=>{
+const nomeSafe = JSON.stringify(p.nome);
+const precoSafe = Number(p.preco);
+const idSafe = JSON.stringify(p.id);
+lista.innerHTML+=`<div class="card"><img src="${p.imagem}"><h4>${p.nome}</h4><p class="preco">R$ ${precoSafe}</p><button onclick="addCarrinho(${idSafe},${nomeSafe},${precoSafe})">Adicionar</button>${isAdmin?`<button onclick="excluirProduto(${idSafe})">Excluir</button>`:''}</div>`;
+});
+}
+
+onSnapshot(collection(db,'produtos'),snap=>{
+produtos=[];
+snap.forEach(d=>produtos.push({...d.data(),id:d.id}));
+renderProdutos();
+});
+
+window.addCarrinho=(id,nome,preco)=>{
+if(!user){alert('Faça login para comprar');return}
+const item=carrinho.find(p=>p.id===id);
+if(item){item.qtd++}else{carrinho.push({id,nome,preco:Number(preco),qtd:1})}
+renderCart();
+}
+
+window.removerItem=id=>{
+carrinho=carrinho.filter(p=>p.id!==id);
+renderCart();
+}
+
+function renderCart(){
+const box=document.getElementById('cartBox');
+let total=0;box.innerHTML='';
+
+carrinho.forEach(p=>{
+total+=p.preco*p.qtd;
+const idSafe = JSON.stringify(p.id);
+box.innerHTML+=`<div class="item"><span>${p.nome} x${p.qtd}</span><button class="remove" onclick="removerItem(${idSafe})">✖</button></div>`;
+});
+
+box.innerHTML+=`<hr>Total: R$ ${total.toFixed(2)}<br><button onclick="finalizar()">Finalizar</button>`;
+
+document.getElementById('total').innerText=total.toFixed(2);
+}
+
+window.toggleCart=()=>{
+const box=document.getElementById('cartBox');
+box.style.display=box.style.display==='block'?'none':'block';
+}
+
+window.finalizar=()=>{
+if(!user){alert('Faça login');return}
+let msg=`Cliente: ${user.displayName}\nEmail: ${user.email}\n\nPedido:\n`;
+let total=0;
+
+carrinho.forEach(p=>{
+msg+=`- ${p.nome} x${p.qtd}\n`;
+total+=p.preco*p.qtd;
+});
+
+msg+=`\nTotal: R$ ${total.toFixed(2)}`;
+
+window.open(`https://wa.me/5571991813374?text=${encodeURIComponent(msg)}`);
+}
+</script></body>
+</html>
